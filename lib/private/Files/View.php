@@ -51,6 +51,7 @@ use OC\Files\Mount\MoveableMount;
 use OC\Files\Storage\Storage;
 use OC\User\User;
 use OCA\Files_Sharing\SharedMount;
+use OCA\Files_Sharing\SharedStorage;
 use OCP\Constants;
 use OCP\Files\Cache\ICacheEntry;
 use OCP\Files\EmptyFileNameException;
@@ -1657,13 +1658,42 @@ class View {
 			}
 
 			$mounts = Filesystem::getMountManager()->findIn($this->fakeRoot);
+
+			$regex = '/' . str_replace('%', '.*', $args[0]) . '/';
+
 			foreach ($mounts as $mount) {
 				$mountPoint = $mount->getMountPoint();
 				$storage = $mount->getStorage();
+
 				if ($storage) {
 					$cache = $storage->getCache('');
-
 					$relativeMountPoint = substr($mountPoint, $rootLength);
+
+					if ($storage->instanceOfStorage(SharedStorage::class) && $storage->getItemType() === 'file') {
+						$type = $storage->getItemType();
+						$parts = explode('/', $mountPoint);
+						$internalPath = $parts[count($parts) - 2];
+
+						$matches = preg_match($regex, $internalPath);
+
+						// Doesn't match. Just move on
+						if ($matches === 0) {
+							continue;
+						}
+
+						// Matches lets do something
+						if ($matches === 1) {
+							$result = $cache->get('');
+							$internalPath = $result['path'];
+							$result['path'] = rtrim($relativeMountPoint . $result['path'], '/');
+							$path = rtrim($mountPoint . $internalPath, '/');
+							$owner = \OC::$server->getUserManager()->get($storage->getOwner($internalPath));
+							$files[] = new FileInfo($path, $storage, $internalPath, $result, $mount, $owner);
+							continue;
+						}
+					}
+
+
 					$results = call_user_func_array([$cache, $method], $args);
 					if ($results) {
 						foreach ($results as $result) {
